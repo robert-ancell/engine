@@ -16,6 +16,12 @@
 struct FlApplicationPrivate {
   // Arguments to pass to Dart.
   gchar** dart_entrypoint_arguments;
+
+  // Engine being shown.
+  FlEngine* engine;
+
+  // Implicit view.
+  FlView* implicit_view;
 };
 
 #define FL_APPLICATION_GET_PRIVATE(app)                        \
@@ -88,22 +94,23 @@ static void fl_application_activate(GApplication* application) {
   g_autoptr(FlDartProject) project = fl_dart_project_new();
   fl_dart_project_set_dart_entrypoint_arguments(
       project, priv->dart_entrypoint_arguments);
+  priv->engine = fl_engine_new(project);
 
-  FlView* view = fl_view_new(project);
-  g_signal_connect_swapped(view, "first-frame", G_CALLBACK(first_frame_cb),
-                           self);
-  gtk_widget_show(GTK_WIDGET(view));
+  priv->implicit_view = fl_view_new_implicit(priv->engine);
+  g_signal_connect_swapped(priv->implicit_view, "first-frame",
+                           G_CALLBACK(first_frame_cb), self);
+  gtk_widget_show(GTK_WIDGET(priv->implicit_view));
 
   GtkWindow* window;
-  g_signal_emit(self, fl_application_signals[kSignalCreateWindow], 0, view,
-                &window);
+  g_signal_emit(self, fl_application_signals[kSignalCreateWindow], 0,
+                priv->implicit_view, &window);
 
   // Make the resources for the view so rendering can start.
   // We'll show the view when we have the first frame.
-  gtk_widget_realize(GTK_WIDGET(view));
+  gtk_widget_realize(GTK_WIDGET(priv->implicit_view));
 
   g_signal_emit(self, fl_application_signals[kSignalRegisterPlugins], 0,
-                FL_PLUGIN_REGISTRY(view));
+                FL_PLUGIN_REGISTRY(priv->implicit_view));
 }
 
 // Implements GApplication::local_command_line.
@@ -137,6 +144,7 @@ static void fl_application_dispose(GObject* object) {
   FlApplicationPrivate* priv = FL_APPLICATION_GET_PRIVATE(self);
 
   g_clear_pointer(&priv->dart_entrypoint_arguments, g_strfreev);
+  g_clear_object(&priv->engine);
 
   G_OBJECT_CLASS(fl_application_parent_class)->dispose(object);
 }
@@ -169,4 +177,42 @@ FlApplication* fl_application_new(const gchar* application_id,
   return FL_APPLICATION(g_object_new(fl_application_get_type(),
                                      "application-id", application_id, "flags",
                                      flags, nullptr));
+}
+
+G_MODULE_EXPORT
+FlEngine* fl_application_get_engine(FlApplication* self) {
+  g_return_val_if_fail(FL_IS_APPLICATION(self), nullptr);
+
+  FlApplicationPrivate* priv = FL_APPLICATION_GET_PRIVATE(self);
+
+  return priv->engine;
+}
+
+G_MODULE_EXPORT
+FlView* fl_application_get_implicit_view(FlApplication* self) {
+  g_return_val_if_fail(FL_IS_APPLICATION(self), nullptr);
+
+  FlApplicationPrivate* priv = FL_APPLICATION_GET_PRIVATE(self);
+
+  return priv->implicit_view;
+}
+
+G_MODULE_EXPORT
+FlView* fl_application_add_view(FlApplication* self) {
+  g_return_val_if_fail(FL_IS_APPLICATION(self), nullptr);
+
+  FlApplicationPrivate* priv = FL_APPLICATION_GET_PRIVATE(self);
+
+  FlView* view = fl_view_new_for_engine(priv->engine);
+  g_signal_connect_swapped(view, "first-frame", G_CALLBACK(first_frame_cb),
+                           self);
+  gtk_widget_show(GTK_WIDGET(view));
+
+  GtkWindow* window;
+  g_signal_emit(self, fl_application_signals[kSignalCreateWindow], 0, view,
+                &window);
+
+  gtk_widget_realize(GTK_WIDGET(view));
+
+  return view;
 }

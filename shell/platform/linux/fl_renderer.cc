@@ -505,7 +505,8 @@ gboolean fl_renderer_present_layers(FlRenderer* self,
         }
       }
 
-      FlFramebuffer* view_framebuffer = fl_framebuffer_new(width, height);
+      FlFramebuffer* view_framebuffer =
+          fl_framebuffer_new(priv->general_format, width, height);
       glBindFramebuffer(GL_DRAW_FRAMEBUFFER,
                         fl_framebuffer_get_id(view_framebuffer));
       render(self, framebuffers, width, height);
@@ -521,12 +522,14 @@ gboolean fl_renderer_present_layers(FlRenderer* self,
     size_t data_length = width * height * 4;
     g_autofree uint8_t* data = static_cast<uint8_t*>(malloc(data_length));
     glBindFramebuffer(GL_READ_FRAMEBUFFER, fl_framebuffer_get_id(framebuffer));
-    glReadPixels(0, 0, width, height, GL_RGBA, GL_UNSIGNED_BYTE, data);
+    glReadPixels(0, 0, width, height, priv->general_format, GL_UNSIGNED_BYTE,
+                 data);
     g_ptr_array_set_size(framebuffers, 0);
 
     // Write into a texture in the views context.
     fl_view_make_current(view);
-    FlFramebuffer* view_framebuffer = fl_framebuffer_new(width, height);
+    FlFramebuffer* view_framebuffer =
+        fl_framebuffer_new(priv->general_format, width, height);
     glBindFramebuffer(GL_DRAW_FRAMEBUFFER,
                       fl_framebuffer_get_id(view_framebuffer));
     glBindTexture(GL_TEXTURE_2D,

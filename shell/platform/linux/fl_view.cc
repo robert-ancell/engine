@@ -83,6 +83,8 @@ struct _FlView {
 
   // Accessible tree from Flutter, exposed as an AtkPlug.
   FlViewAccessible* view_accessible;
+
+  GCancellable* cancellable;
 };
 
 enum { kSignalFirstFrame, kSignalLastSignal };
@@ -113,6 +115,28 @@ G_DEFINE_TYPE_WITH_CODE(
                                   fl_view_scrolling_delegate_iface_init)
                 G_IMPLEMENT_INTERFACE(fl_text_input_view_delegate_get_type(),
                                       fl_view_text_input_delegate_iface_init))
+
+static void view_added_cb(GObject* object,
+                          GAsyncResult* result,
+                          gpointer user_data) {
+  FlView* self = FL_VIEW(user_data);
+
+  g_autoptr(GError) error = nullptr;
+  FlutterViewId view_id =
+      fl_engine_add_view_finish(FL_ENGINE(object), result, &error);
+  if (view_id == -1) {
+    if (g_error_matches(error, G_IO_ERROR, G_IO_ERROR_CANCELLED)) {
+      return;
+    }
+
+    g_warning("Failed to add view: %s", error->message);
+    // FIXME: Show on the GLArea
+    return;
+  }
+
+  self->view_id = view_id;
+  fl_renderer_add_view(FL_RENDERER(self->renderer), self->view_id, self);
+}
 
 // Emit the first frame signal in the main thread.
 static gboolean first_frame_idle_cb(gpointer user_data) {
@@ -225,8 +249,10 @@ static gboolean send_pointer_button_event(FlView* self, GdkEvent* event) {
   gint scale_factor = gtk_widget_get_scale_factor(GTK_WIDGET(self));
   fl_scrolling_manager_set_last_mouse_position(
       self->scrolling_manager, event_x * scale_factor, event_y * scale_factor);
-  fl_keyboard_handler_sync_modifier_if_needed(self->keyboard_handler,
-                                              event_state, event_time);
+  if (self->keyboard_handler != nullptr) {
+    fl_keyboard_handler_sync_modifier_if_needed(self->keyboard_handler,
+                                                event_state, event_time);
+  }
   fl_engine_send_mouse_pointer_event(
       self->engine, self->view_id, phase,
       event_time * kMicrosecondsPerMillisecond, event_x * scale_factor,
@@ -458,8 +484,10 @@ static gboolean motion_notify_event_cb(FlView* self,
 
   gint scale_factor = gtk_widget_get_scale_factor(GTK_WIDGET(self));
 
-  fl_keyboard_handler_sync_modifier_if_needed(self->keyboard_handler,
-                                              event_state, event_time);
+  if (self->keyboard_handler != nullptr) {
+    fl_keyboard_handler_sync_modifier_if_needed(self->keyboard_handler,
+                                                event_state, event_time);
+  }
   fl_engine_send_mouse_pointer_event(
       self->engine, self->view_id, self->button_state != 0 ? kMove : kHover,
       event_time * kMicrosecondsPerMillisecond, event_x * scale_factor,
@@ -664,6 +692,8 @@ static void fl_view_notify(GObject* object, GParamSpec* pspec) {
 static void fl_view_dispose(GObject* object) {
   FlView* self = FL_VIEW(object);
 
+  g_cancellable_cancel(self->cancellable);
+
   if (self->engine != nullptr) {
     fl_engine_set_update_semantics_handler(self->engine, nullptr, nullptr,
                                            nullptr);
@@ -688,6 +718,7 @@ static void fl_view_dispose(GObject* object) {
   g_clear_object(&self->mouse_cursor_handler);
   g_clear_object(&self->platform_handler);
   g_clear_object(&self->view_accessible);
+  g_clear_object(&self->cancellable);
 
   G_OBJECT_CLASS(fl_view_parent_class)->dispose(object);
 }
@@ -739,6 +770,8 @@ static void fl_view_class_init(FlViewClass* klass) {
 }
 
 static void fl_view_init(FlView* self) {
+  self->cancellable = g_cancellable_new();
+
   gtk_widget_set_can_focus(GTK_WIDGET(self), TRUE);
 
   // When we support multiple views this will become variable.
@@ -790,25 +823,16 @@ static void fl_view_init(FlView* self) {
   gtk_widget_show(GTK_WIDGET(self->gl_area));
   gtk_container_add(GTK_CONTAINER(self->event_box), GTK_WIDGET(self->gl_area));
 
-  g_signal_connect_swapped(self->gl_area, "create-context",
-                           G_CALLBACK(create_context_cb), self);
-  g_signal_connect_swapped(self->gl_area, "realize", G_CALLBACK(realize_cb),
-                           self);
-  g_signal_connect_swapped(self->gl_area, "render", G_CALLBACK(render_cb),
-                           self);
-  g_signal_connect_swapped(self->gl_area, "unrealize", G_CALLBACK(unrealize_cb),
-                           self);
-
   g_signal_connect_swapped(self, "size-allocate", G_CALLBACK(size_allocate_cb),
                            self);
 }
 
 G_MODULE_EXPORT FlView* fl_view_new(FlDartProject* project) {
   g_autoptr(FlEngine) engine = fl_engine_new(project);
-  return fl_view_new_for_engine(engine);
+  return fl_view_new_implicit(engine);
 }
 
-G_MODULE_EXPORT FlView* fl_view_new_for_engine(FlEngine* engine) {
+G_MODULE_EXPORT FlView* fl_view_new_implicit(FlEngine* engine) {
   FlView* self = FL_VIEW(g_object_new(fl_view_get_type(), nullptr));
 
   self->engine = FL_ENGINE(g_object_ref(engine));
@@ -821,6 +845,33 @@ G_MODULE_EXPORT FlView* fl_view_new_for_engine(FlEngine* engine) {
   self->on_pre_engine_restart_handler =
       g_signal_connect_swapped(engine, "on-pre-engine-restart",
                                G_CALLBACK(on_pre_engine_restart_cb), self);
+
+  g_signal_connect_swapped(self->gl_area, "create-context",
+                           G_CALLBACK(create_context_cb), self);
+  g_signal_connect_swapped(self->gl_area, "realize", G_CALLBACK(realize_cb),
+                           self);
+  g_signal_connect_swapped(self->gl_area, "render", G_CALLBACK(render_cb),
+                           self);
+  g_signal_connect_swapped(self->gl_area, "unrealize", G_CALLBACK(unrealize_cb),
+                           self);
+
+  return self;
+}
+
+G_MODULE_EXPORT FlView* fl_view_new_for_engine(FlEngine* engine) {
+  FlView* self = FL_VIEW(g_object_new(fl_view_get_type(), nullptr));
+
+  self->engine = FL_ENGINE(g_object_ref(engine));
+  FlRenderer* renderer = fl_engine_get_renderer(engine);
+  g_assert(FL_IS_RENDERER_GDK(renderer));
+  self->renderer = FL_RENDERER_GDK(g_object_ref(renderer));
+
+  self->on_pre_engine_restart_handler =
+      g_signal_connect_swapped(engine, "on-pre-engine-restart",
+                               G_CALLBACK(on_pre_engine_restart_cb), self);
+
+  fl_engine_add_view(self->engine, 1, 1, 1.0, self->cancellable, view_added_cb,
+                     self);
 
   return self;
 }

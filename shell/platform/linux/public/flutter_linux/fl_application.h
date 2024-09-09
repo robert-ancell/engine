@@ -76,6 +76,34 @@ struct _FlApplicationClass {
 FlApplication* fl_application_new(const gchar* application_id,
                                   GApplicationFlags flags);
 
+/**
+ * fl_application_get_engine:
+ * @application: an #FlApplication.
+ *
+ * Gets the engine this application is using.
+ *
+ * Returns: an #FlEngine.
+ */
+FlEngine* fl_application_get_engine(FlApplication* application);
+
+/**
+ * fl_application_get_implicit_view:
+ * @application: an #FlApplication.
+ *
+ * Gets the implicit view this application provides.
+ *
+ * Returns: an #FlView.
+ */
+FlView* fl_application_get_implicit_view(FlApplication* application);
+
+/**
+ * fl_application_add_view:
+ * @application: an #FlApplication.
+ *
+ * Add a new view.
+ */
+FlView* fl_application_add_view(FlApplication* application);
+
 G_END_DECLS
 
 #endif  // FLUTTER_SHELL_PLATFORM_LINUX_PUBLIC_FLUTTER_LINUX_FL_APPLICATION_H_

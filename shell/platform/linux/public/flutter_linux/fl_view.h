@@ -45,9 +45,23 @@ G_DECLARE_FINAL_TYPE(FlView, fl_view, FL, VIEW, GtkBox)
  * Creates a widget to show a Flutter application.
  *
  * Returns: a new #FlView.
+ *
+ * Deprecated: Use fl_view_new_implicit and fl_view_new_for_engine
  */
 FlView* fl_view_new(FlDartProject* project);
 
+/**
+ * fl_view_new_implicit:
+ * @engine: an #FlEngine.
+ *
+ * Creates a widget to show the implicity view of a Flutter application.
+ * The engine must be not be headless.
+ *
+ * Returns: a new #FlView.
+ */
+FlView* fl_view_new_implicit(FlEngine* engine);
+
+// FIXME: new_secondary?
 /**
  * fl_view_new_for_engine:
  * @engine: an #FlEngine.
