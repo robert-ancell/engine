@@ -454,14 +454,8 @@ gboolean fl_renderer_present_layers(FlRenderer* self,
 
   fl_renderer_unblock_main_thread(self);
 
-  GPtrArray* framebuffers = reinterpret_cast<GPtrArray*>((g_hash_table_lookup(
-      priv->framebuffers_by_view_id, GINT_TO_POINTER(view_id))));
-  if (framebuffers == nullptr) {
-    framebuffers = g_ptr_array_new_with_free_func(g_object_unref);
-    g_hash_table_insert(priv->framebuffers_by_view_id, GINT_TO_POINTER(view_id),
-                        framebuffers);
-  }
-  g_ptr_array_set_size(framebuffers, 0);
+  g_autoptr(GPtrArray) framebuffers =
+      g_ptr_array_new_with_free_func(g_object_unref);
   for (size_t i = 0; i < layers_count; ++i) {
     const FlutterLayer* layer = layers[i];
     switch (layer->type) {
@@ -484,9 +478,11 @@ gboolean fl_renderer_present_layers(FlRenderer* self,
     return TRUE;
   }
 
-  // If this is a secondary view, composite it now and copy pixels into the
-  // views context.
-  if (view_id != flutter::kFlutterImplicitViewId) {
+  if (view_id == flutter::kFlutterImplicitViewId) {
+    // Store for rendering later
+    g_hash_table_insert(priv->framebuffers_by_view_id, GINT_TO_POINTER(view_id),
+                        g_ptr_array_ref(framebuffers));
+  } else {
     // Composite into a single framebuffer.
     if (framebuffers->len > 1) {
       size_t width = 0, height = 0;
@@ -524,7 +520,6 @@ gboolean fl_renderer_present_layers(FlRenderer* self,
     glBindFramebuffer(GL_READ_FRAMEBUFFER, fl_framebuffer_get_id(framebuffer));
     glReadPixels(0, 0, width, height, priv->general_format, GL_UNSIGNED_BYTE,
                  data);
-    g_ptr_array_set_size(framebuffers, 0);
 
     // Write into a texture in the views context.
     fl_view_make_current(view);
@@ -536,7 +531,12 @@ gboolean fl_renderer_present_layers(FlRenderer* self,
                   fl_framebuffer_get_texture_id(view_framebuffer));
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA,
                  GL_UNSIGNED_BYTE, data);
-    g_ptr_array_add(framebuffers, view_framebuffer);
+
+    g_autoptr(GPtrArray) secondary_framebuffers =
+        g_ptr_array_new_with_free_func(g_object_unref);
+    g_ptr_array_add(secondary_framebuffers, g_object_ref(view_framebuffer));
+    g_hash_table_insert(priv->framebuffers_by_view_id, GINT_TO_POINTER(view_id),
+                        g_ptr_array_ref(secondary_framebuffers));
   }
 
   fl_view_redraw(view);
