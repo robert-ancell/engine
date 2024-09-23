@@ -247,8 +247,11 @@ static gboolean send_pointer_button_event(FlView* self, GdkEvent* event) {
   }
 
   gint scale_factor = gtk_widget_get_scale_factor(GTK_WIDGET(self));
-  fl_scrolling_manager_set_last_mouse_position(
-      self->scrolling_manager, event_x * scale_factor, event_y * scale_factor);
+  if (self->scrolling_manager != nullptr) {
+    fl_scrolling_manager_set_last_mouse_position(self->scrolling_manager,
+                                                 event_x * scale_factor,
+                                                 event_y * scale_factor);
+  }
   if (self->keyboard_handler != nullptr) {
     fl_keyboard_handler_sync_modifier_if_needed(self->keyboard_handler,
                                                 event_state, event_time);
@@ -822,6 +825,8 @@ static void fl_view_init(FlView* self) {
   gtk_gl_area_set_has_alpha(self->gl_area, TRUE);
   gtk_widget_show(GTK_WIDGET(self->gl_area));
   gtk_container_add(GTK_CONTAINER(self->event_box), GTK_WIDGET(self->gl_area));
+  g_signal_connect_swapped(self->gl_area, "render", G_CALLBACK(render_cb),
+                           self);
 
   g_signal_connect_swapped(self, "size-allocate", G_CALLBACK(size_allocate_cb),
                            self);
@@ -849,8 +854,6 @@ G_MODULE_EXPORT FlView* fl_view_new_implicit(FlEngine* engine) {
   g_signal_connect_swapped(self->gl_area, "create-context",
                            G_CALLBACK(create_context_cb), self);
   g_signal_connect_swapped(self->gl_area, "realize", G_CALLBACK(realize_cb),
-                           self);
-  g_signal_connect_swapped(self->gl_area, "render", G_CALLBACK(render_cb),
                            self);
   g_signal_connect_swapped(self->gl_area, "unrealize", G_CALLBACK(unrealize_cb),
                            self);
