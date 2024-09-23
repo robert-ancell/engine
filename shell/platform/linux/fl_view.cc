@@ -116,6 +116,34 @@ G_DEFINE_TYPE_WITH_CODE(
                 G_IMPLEMENT_INTERFACE(fl_text_input_view_delegate_get_type(),
                                       fl_view_text_input_delegate_iface_init))
 
+// Updates the engine with the current window metrics.
+static void handle_geometry_changed(FlView* self) {
+  // Still waiting for a view ID.
+  if (self->view_id == -1) {
+    return;
+  }
+
+  GtkAllocation allocation;
+  gtk_widget_get_allocation(GTK_WIDGET(self), &allocation);
+  gint scale_factor = gtk_widget_get_scale_factor(GTK_WIDGET(self));
+  fl_engine_send_window_metrics_event(
+      self->engine, self->view_id, allocation.width * scale_factor,
+      allocation.height * scale_factor, scale_factor);
+
+  // Make sure the view has been realized and its size has been allocated before
+  // waiting for a frame. `fl_view_realize()` and `fl_view_size_allocate()` may
+  // be called in either order depending on the order in which the window is
+  // shown and the view is added to a container in the app runner.
+  //
+  // Note: `gtk_widget_init()` initializes the size allocation to 1x1.
+  if (allocation.width > 1 && allocation.height > 1 &&
+      gtk_widget_get_realized(GTK_WIDGET(self))) {
+    fl_renderer_wait_for_frame(FL_RENDERER(self->renderer),
+                               allocation.width * scale_factor,
+                               allocation.height * scale_factor);
+  }
+}
+
 static void view_added_cb(GObject* object,
                           GAsyncResult* result,
                           gpointer user_data) {
@@ -136,6 +164,7 @@ static void view_added_cb(GObject* object,
 
   self->view_id = view_id;
   fl_renderer_add_view(FL_RENDERER(self->renderer), self->view_id, self);
+  handle_geometry_changed(self);
 }
 
 // Emit the first frame signal in the main thread.
@@ -280,29 +309,6 @@ static void check_pointer_inside(FlView* self, GdkEvent* event) {
           x * scale_factor, y * scale_factor, get_device_kind(event), 0, 0,
           self->button_state);
     }
-  }
-}
-
-// Updates the engine with the current window metrics.
-static void handle_geometry_changed(FlView* self) {
-  GtkAllocation allocation;
-  gtk_widget_get_allocation(GTK_WIDGET(self), &allocation);
-  gint scale_factor = gtk_widget_get_scale_factor(GTK_WIDGET(self));
-  fl_engine_send_window_metrics_event(
-      self->engine, self->view_id, allocation.width * scale_factor,
-      allocation.height * scale_factor, scale_factor);
-
-  // Make sure the view has been realized and its size has been allocated before
-  // waiting for a frame. `fl_view_realize()` and `fl_view_size_allocate()` may
-  // be called in either order depending on the order in which the window is
-  // shown and the view is added to a container in the app runner.
-  //
-  // Note: `gtk_widget_init()` initializes the size allocation to 1x1.
-  if (allocation.width > 1 && allocation.height > 1 &&
-      gtk_widget_get_realized(GTK_WIDGET(self))) {
-    fl_renderer_wait_for_frame(FL_RENDERER(self->renderer),
-                               allocation.width * scale_factor,
-                               allocation.height * scale_factor);
   }
 }
 
@@ -777,9 +783,7 @@ static void fl_view_init(FlView* self) {
 
   gtk_widget_set_can_focus(GTK_WIDGET(self), TRUE);
 
-  // When we support multiple views this will become variable.
-  // https://github.com/flutter/flutter/issues/138178
-  self->view_id = flutter::kFlutterImplicitViewId;
+  self->view_id = -1;
 
   GdkRGBA default_background = {
       .red = 0.0, .green = 0.0, .blue = 0.0, .alpha = 1.0};
@@ -840,6 +844,7 @@ G_MODULE_EXPORT FlView* fl_view_new(FlDartProject* project) {
 G_MODULE_EXPORT FlView* fl_view_new_implicit(FlEngine* engine) {
   FlView* self = FL_VIEW(g_object_new(fl_view_get_type(), nullptr));
 
+  self->view_id = flutter::kFlutterImplicitViewId;
   self->engine = FL_ENGINE(g_object_ref(engine));
   FlRenderer* renderer = fl_engine_get_renderer(engine);
   g_assert(FL_IS_RENDERER_GDK(renderer));
