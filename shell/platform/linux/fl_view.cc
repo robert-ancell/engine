@@ -118,11 +118,6 @@ G_DEFINE_TYPE_WITH_CODE(
 
 // Updates the engine with the current window metrics.
 static void handle_geometry_changed(FlView* self) {
-  // Still waiting for a view ID.
-  if (self->view_id == -1) {
-    return;
-  }
-
   GtkAllocation allocation;
   gtk_widget_get_allocation(GTK_WIDGET(self), &allocation);
   gint scale_factor = gtk_widget_get_scale_factor(GTK_WIDGET(self));
@@ -150,9 +145,7 @@ static void view_added_cb(GObject* object,
   FlView* self = FL_VIEW(user_data);
 
   g_autoptr(GError) error = nullptr;
-  FlutterViewId view_id =
-      fl_engine_add_view_finish(FL_ENGINE(object), result, &error);
-  if (view_id == -1) {
+  if (!fl_engine_add_view_finish(FL_ENGINE(object), result, &error)) {
     if (g_error_matches(error, G_IO_ERROR, G_IO_ERROR_CANCELLED)) {
       return;
     }
@@ -162,8 +155,6 @@ static void view_added_cb(GObject* object,
     return;
   }
 
-  self->view_id = view_id;
-  fl_renderer_add_view(FL_RENDERER(self->renderer), self->view_id, self);
   handle_geometry_changed(self);
 }
 
@@ -885,8 +876,9 @@ G_MODULE_EXPORT FlView* fl_view_new_for_engine(FlEngine* engine) {
       g_signal_connect_swapped(engine, "on-pre-engine-restart",
                                G_CALLBACK(on_pre_engine_restart_cb), self);
 
-  fl_engine_add_view(self->engine, 1, 1, 1.0, self->cancellable, view_added_cb,
-                     self);
+  self->view_id = fl_engine_add_view(self->engine, 1, 1, 1.0, self->cancellable,
+                                     view_added_cb, self);
+  fl_renderer_add_view(FL_RENDERER(self->renderer), self->view_id, self);
 
   return self;
 }
