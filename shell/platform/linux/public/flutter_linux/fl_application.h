@@ -101,8 +101,31 @@ FlView* fl_application_get_implicit_view(FlApplication* application);
  * @application: an #FlApplication.
  *
  * Add a new view.
+ *
+ * Returns: a new #FlView.
  */
 FlView* fl_application_add_view(FlApplication* application);
+
+/**
+ * fl_application_get_view_by_id:
+ * @application: an #FlApplication.
+ * @view_id: A Flutter view ID.
+ *
+ * Gets the view with the given ID.
+ *
+ * Returns: (allow-none): an #FlView or %NULL if no view with this ID.
+ */
+FlView* fl_application_get_view_by_id(FlApplication* application,
+                                      int64_t view_id);
+
+/**
+ * fl_application_add_view:
+ * @application: an #FlApplication.
+ * @view: an #FlView.
+ *
+ * Removes a view previously added to the application.
+ */
+void fl_application_remove_view(FlApplication* application, FlView* view);
 
 G_END_DECLS
 

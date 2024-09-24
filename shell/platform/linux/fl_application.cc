@@ -216,3 +216,20 @@ FlView* fl_application_add_view(FlApplication* self) {
 
   return view;
 }
+
+G_MODULE_EXPORT
+FlView* fl_application_get_view_by_id(FlApplication* self, int64_t view_id) {
+  g_return_val_if_fail(FL_IS_APPLICATION(self), nullptr);
+  g_return_val_if_fail(view_id >= 0, nullptr);
+
+  // FIXME
+  return nullptr;
+}
+
+G_MODULE_EXPORT
+void fl_application_remove_view(FlApplication* self, FlView* view) {
+  g_return_if_fail(FL_IS_APPLICATION(self));
+
+  GtkWidget* window = gtk_widget_get_toplevel(GTK_WIDGET(view));
+  gtk_widget_destroy(window);
+}

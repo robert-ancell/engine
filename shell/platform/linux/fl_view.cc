@@ -706,6 +706,13 @@ static void fl_view_dispose(GObject* object) {
   if (self->engine != nullptr) {
     fl_engine_set_update_semantics_handler(self->engine, nullptr, nullptr,
                                            nullptr);
+
+    // Stop rendering.
+    fl_renderer_remove_view(FL_RENDERER(self->renderer), self->view_id);
+
+    // Release the view ID from the engine.
+    fl_engine_remove_view(self->engine, self->view_id, nullptr, nullptr,
+                          nullptr);
   }
 
   if (self->on_pre_engine_restart_handler != 0) {
@@ -887,6 +894,12 @@ G_MODULE_EXPORT FlView* fl_view_new_for_engine(FlEngine* engine) {
 G_MODULE_EXPORT FlEngine* fl_view_get_engine(FlView* self) {
   g_return_val_if_fail(FL_IS_VIEW(self), nullptr);
   return self->engine;
+}
+
+G_MODULE_EXPORT
+int64_t fl_view_get_id(FlView* self) {
+  g_return_val_if_fail(FL_IS_VIEW(self), -1);
+  return self->view_id;
 }
 
 G_MODULE_EXPORT void fl_view_set_background_color(FlView* self,
