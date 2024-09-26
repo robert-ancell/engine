@@ -552,12 +552,6 @@ static void gesture_zoom_end_cb(FlView* self) {
 }
 
 static GdkGLContext* create_context_cb(FlView* self) {
-  // Secondary views can't share the contex with the implicit view, so we use
-  // the one allocated by GTK.
-  if (self->view_id != flutter::kFlutterImplicitViewId) {
-    return nullptr;
-  }
-
   fl_renderer_gdk_set_window(self->renderer,
                              gtk_widget_get_parent_window(GTK_WIDGET(self)));
 
@@ -670,6 +664,8 @@ static void fl_view_notify(GObject* object, GParamSpec* pspec) {
 static void fl_view_dispose(GObject* object) {
   FlView* self = FL_VIEW(object);
 
+  g_cancellable_cancel(self->cancellable);
+
   if (self->engine != nullptr) {
     fl_engine_set_update_semantics_handler(self->engine, nullptr, nullptr,
                                            nullptr);
@@ -698,6 +694,7 @@ static void fl_view_dispose(GObject* object) {
   g_clear_object(&self->mouse_cursor_handler);
   g_clear_object(&self->platform_handler);
   g_clear_object(&self->view_accessible);
+  g_clear_object(&self->cancellable);
 
   G_OBJECT_CLASS(fl_view_parent_class)->dispose(object);
 }
@@ -749,11 +746,11 @@ static void fl_view_class_init(FlViewClass* klass) {
 }
 
 static void fl_view_init(FlView* self) {
+  self->cancellable = g_cancellable_new();
+
   gtk_widget_set_can_focus(GTK_WIDGET(self), TRUE);
 
-  // When we support multiple views this will become variable.
-  // https://github.com/flutter/flutter/issues/138178
-  self->view_id = flutter::kFlutterImplicitViewId;
+  self->view_id = -1;
 
   GdkRGBA default_background = {
       .red = 0.0, .green = 0.0, .blue = 0.0, .alpha = 1.0};
@@ -799,14 +796,7 @@ static void fl_view_init(FlView* self) {
   gtk_gl_area_set_has_alpha(self->gl_area, TRUE);
   gtk_widget_show(GTK_WIDGET(self->gl_area));
   gtk_container_add(GTK_CONTAINER(self->event_box), GTK_WIDGET(self->gl_area));
-
-  g_signal_connect_swapped(self->gl_area, "create-context",
-                           G_CALLBACK(create_context_cb), self);
-  g_signal_connect_swapped(self->gl_area, "realize", G_CALLBACK(realize_cb),
-                           self);
   g_signal_connect_swapped(self->gl_area, "render", G_CALLBACK(render_cb),
-                           self);
-  g_signal_connect_swapped(self->gl_area, "unrealize", G_CALLBACK(unrealize_cb),
                            self);
 
   g_signal_connect_swapped(self, "size-allocate", G_CALLBACK(size_allocate_cb),
@@ -815,12 +805,9 @@ static void fl_view_init(FlView* self) {
 
 G_MODULE_EXPORT FlView* fl_view_new(FlDartProject* project) {
   g_autoptr(FlEngine) engine = fl_engine_new(project);
-  return fl_view_new_for_engine(engine);
-}
-
-G_MODULE_EXPORT FlView* fl_view_new_for_engine(FlEngine* engine) {
   FlView* self = FL_VIEW(g_object_new(fl_view_get_type(), nullptr));
 
+  self->view_id = flutter::kFlutterImplicitViewId;
   self->engine = FL_ENGINE(g_object_ref(engine));
   FlRenderer* renderer = fl_engine_get_renderer(engine);
   g_assert(FL_IS_RENDERER_GDK(renderer));
@@ -831,6 +818,32 @@ G_MODULE_EXPORT FlView* fl_view_new_for_engine(FlEngine* engine) {
   self->on_pre_engine_restart_handler =
       g_signal_connect_swapped(engine, "on-pre-engine-restart",
                                G_CALLBACK(on_pre_engine_restart_cb), self);
+
+  g_signal_connect_swapped(self->gl_area, "create-context",
+                           G_CALLBACK(create_context_cb), self);
+  g_signal_connect_swapped(self->gl_area, "realize", G_CALLBACK(realize_cb),
+                           self);
+  g_signal_connect_swapped(self->gl_area, "unrealize", G_CALLBACK(unrealize_cb),
+                           self);
+
+  return self;
+}
+
+G_MODULE_EXPORT FlView* fl_view_new_for_engine(FlEngine* engine) {
+  FlView* self = FL_VIEW(g_object_new(fl_view_get_type(), nullptr));
+
+  self->engine = FL_ENGINE(g_object_ref(engine));
+  FlRenderer* renderer = fl_engine_get_renderer(engine);
+  g_assert(FL_IS_RENDERER_GDK(renderer));
+  self->renderer = FL_RENDERER_GDK(g_object_ref(renderer));
+
+  self->on_pre_engine_restart_handler =
+      g_signal_connect_swapped(engine, "on-pre-engine-restart",
+                               G_CALLBACK(on_pre_engine_restart_cb), self);
+
+  self->view_id = fl_engine_add_view(self->engine, 1, 1, 1.0, self->cancellable,
+                                     view_added_cb, self);
+  fl_renderer_add_view(FL_RENDERER(self->renderer), self->view_id, self);
 
   return self;
 }
