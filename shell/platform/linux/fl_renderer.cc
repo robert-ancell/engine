@@ -274,6 +274,20 @@ static void render_with_textures(FlRenderer* self,
   glBindBuffer(GL_ARRAY_BUFFER, saved_array_buffer_binding);
 }
 
+static void render(FlRenderer* self,
+                   GPtrArray* framebuffers,
+                   int width,
+                   int height) {
+  FlRendererPrivate* priv = reinterpret_cast<FlRendererPrivate*>(
+      fl_renderer_get_instance_private(self));
+
+  if (priv->has_gl_framebuffer_blit) {
+    render_with_blit(self, framebuffers);
+  } else {
+    render_with_textures(self, framebuffers, width, height);
+  }
+}
+
 static void fl_renderer_dispose(GObject* object) {
   FlRenderer* self = FL_RENDERER(object);
   FlRendererPrivate* priv = reinterpret_cast<FlRendererPrivate*>(
@@ -506,11 +520,7 @@ void fl_renderer_render(FlRenderer* self,
   GPtrArray* framebuffers = reinterpret_cast<GPtrArray*>((g_hash_table_lookup(
       priv->framebuffers_by_view_id, GINT_TO_POINTER(view_id))));
   if (framebuffers != nullptr) {
-    if (priv->has_gl_framebuffer_blit) {
-      render_with_blit(self, framebuffers);
-    } else {
-      render_with_textures(self, framebuffers, width, height);
-    }
+    render(self, framebuffers, width, height);
   }
 
   glFlush();
