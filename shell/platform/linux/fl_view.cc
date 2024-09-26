@@ -552,6 +552,12 @@ static void gesture_zoom_end_cb(FlView* self) {
 }
 
 static GdkGLContext* create_context_cb(FlView* self) {
+  // Secondary views can't share the contex with the implicit view, so we use
+  // the one allocated by GTK.
+  if (self->view_id != flutter::kFlutterImplicitViewId) {
+    return nullptr;
+  }
+
   fl_renderer_gdk_set_window(self->renderer,
                              gtk_widget_get_parent_window(GTK_WIDGET(self)));
 
@@ -848,6 +854,11 @@ void fl_view_redraw(FlView* self) {
     // callback.
     g_idle_add(first_frame_idle_cb, self);
   }
+}
+
+void fl_view_make_current(FlView* self) {
+  g_return_if_fail(FL_IS_VIEW(self));
+  gtk_gl_area_make_current(self->gl_area);
 }
 
 GHashTable* fl_view_get_keyboard_state(FlView* self) {
